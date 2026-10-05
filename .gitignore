@@ -11,3 +11,6 @@ node_modules/
 *.crt
 *.csr
 Sujet/
+*.pt
+ia/vision/snapshots/
+.venv/

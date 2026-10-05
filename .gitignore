@@ -1,0 +1,13 @@
+.DS_Store
+.env
+*.pem
+*.key
+__pycache__/
+node_modules/
+.pio/
+.vscode/
+.idea/
+*.mp4
+*.crt
+*.csr
+Sujet/

@@ -14,3 +14,7 @@ Sujet/
 *.pt
 ia/vision/snapshots/
 .venv/
+*.csv
+ia/anomalies/*.joblib
+ia/anomalies/data/
+firmware/include/secrets.h

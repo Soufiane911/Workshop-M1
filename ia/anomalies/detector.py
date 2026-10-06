@@ -16,11 +16,18 @@ avec m² la distance de Mahalanobis au carré. Puis
 Usage :
     python detector.py
     python detector.py --api http://localhost:8000/api/v1 --mqtt-host localhost
+    python detector.py --mqtt-port 8883 --mqtt-ca ca.crt --mqtt-user ia --mqtt-password ...
+
+Chaque option peut aussi venir d'une variable d'environnement (conteneur Docker) :
+API_URL, API_TOKEN, MQTT_HOST, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD, MQTT_CA_CERT.
+Aucun secret en dur : le mot de passe passe par l'environnement (infra/.env).
 """
 
 import argparse
 import json
 import math
+import os
+import ssl
 import threading
 import time
 import urllib.request
@@ -161,8 +168,11 @@ class Analyseur:
 class Poster:
     """POST JSON dans un thread ; les erreurs sont affichées au plus toutes les 30 s par route."""
 
-    def __init__(self, base):
+    def __init__(self, base, token=None):
         self.base = base.rstrip("/")
+        self.headers = {"Content-Type": "application/json"}
+        if token:
+            self.headers["Authorization"] = f"Bearer {token}"
         self.derniere_erreur = {}
 
     def post(self, route, payload):
@@ -172,7 +182,7 @@ class Poster:
         try:
             req = urllib.request.Request(
                 f"{self.base}{route}", data=json.dumps(payload).encode(),
-                headers={"Content-Type": "application/json"}, method="POST")
+                headers=self.headers, method="POST")
             urllib.request.urlopen(req, timeout=3).close()
             self.derniere_erreur.pop(route, None)
         except Exception as e:
@@ -189,9 +199,15 @@ def propre(f):
 
 def main():
     p = argparse.ArgumentParser(description="Détection d'anomalies Sentinel-X")
-    p.add_argument("--api", default="http://localhost:8000/api/v1", help="base de l'API (défaut : http://localhost:8000/api/v1)")
-    p.add_argument("--mqtt-host", default="localhost")
-    p.add_argument("--mqtt-port", type=int, default=1883)
+    env = os.environ.get
+    p.add_argument("--api", default=env("API_URL", "http://localhost:8000/api/v1"),
+                   help="base de l'API (défaut : http://localhost:8000/api/v1)")
+    p.add_argument("--api-token", default=env("API_TOKEN"), help="jeton Bearer envoyé à l'API (optionnel)")
+    p.add_argument("--mqtt-host", default=env("MQTT_HOST", "localhost"))
+    p.add_argument("--mqtt-port", type=int, default=int(env("MQTT_PORT", "1883")))
+    p.add_argument("--mqtt-user", default=env("MQTT_USERNAME"))
+    p.add_argument("--mqtt-password", default=env("MQTT_PASSWORD"))
+    p.add_argument("--mqtt-ca", default=env("MQTT_CA_CERT"), help="certificat de l'AC : active TLS (MQTTS)")
     p.add_argument("--model", type=Path, default=MODELE)
     p.add_argument("--window", type=int, default=None, help="taille de fenêtre (défaut : celle du modèle)")
     p.add_argument("--consecutive", type=int, default=3, help="fenêtres anormales consécutives avant « anomalie » (défaut : 3)")
@@ -200,7 +216,7 @@ def main():
     import paho.mqtt.client as mqtt
 
     an = Analyseur(args.model, args.window, args.consecutive)
-    api = Poster(args.api)
+    api = Poster(args.api, args.api_token)
     dernier_etat = {"v": "normal", "alerte": -1e9}
     print(f"Modèle chargé ({an.meta['training_rows']} fenêtres, fenêtre {an.window}, "
           f"entraîné le {an.meta['date']}).")
@@ -241,12 +257,16 @@ def main():
                 print("[alerte] dérive d'environnement signalée")
 
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="sentinel-anomalies")
+    if args.mqtt_user:
+        client.username_pw_set(args.mqtt_user, args.mqtt_password)
+    if args.mqtt_ca:
+        client.tls_set(ca_certs=args.mqtt_ca, tls_version=ssl.PROTOCOL_TLS_CLIENT)
     client.on_connect = on_connect
     client.on_message = on_message
-    client.connect(args.mqtt_host, args.mqtt_port, keepalive=30)
+    client.connect_async(args.mqtt_host, args.mqtt_port, keepalive=30)
     print("Détecteur lancé. Ctrl+C pour arrêter.")
     try:
-        client.loop_forever()
+        client.loop_forever(retry_first_connection=True)  # attend le broker s'il démarre après nous
     except KeyboardInterrupt:
         pass
     finally:

@@ -7,6 +7,8 @@ services:
       # Dev : MQTT non chiffré, accessible uniquement depuis le PC serveur.
       # Le TLS (8883) et l'ouverture au WiFi de table seront ajoutés par la partie Cyber.
       - "127.0.0.1:1883:1883"
+      # WiFi de table (point d'accès du PC, 10.42.0.1) : le boîtier ESP8266 se connecte ici
+      - "10.42.0.1:1883:1883"
     volumes:
       - ./mosquitto/config:/mosquitto/config:ro
       - mosquitto-data:/mosquitto/data
@@ -46,9 +48,27 @@ services:
       SNAPSHOT_DIR: /data/snapshots
     ports:
       - "127.0.0.1:8000:8000"
+      # Dashboard pour l'équipe connectée au WiFi de table (sans authentification pour l'instant)
+      - "10.42.0.1:8000:8000"
     volumes:
       - ../dashboard:/app/dashboard:ro
       - api-snapshots:/data/snapshots
+
+  anomalies:
+    build:
+      context: ..
+      dockerfile: ia/anomalies/Dockerfile
+    container_name: sentinel-anomalies
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+      - api
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      API_URL: http://api:8000/api/v1
+      # TLS / comptes (partie Cyber) : MQTT_PORT 8883, MQTT_CA_CERT, MQTT_USERNAME, MQTT_PASSWORD
+    # Aucun port exposé : le service ne fait que lire MQTT et écrire dans l'API
 
 volumes:
   mosquitto-data:

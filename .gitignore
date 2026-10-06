@@ -14,3 +14,7 @@ Sujet/
 *.pt
 ia/vision/snapshots/
 .venv/
+
+passwd
+*.srl
+san.cnf

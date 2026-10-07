@@ -19,7 +19,7 @@ Le modèle `yolov8n.pt` (pré-entraîné COCO, ~6 Mo) se télécharge tout seul 
 python detect.py                     # webcam par défaut
 python detect.py --camera 1          # webcam USB si plusieurs caméras
 python detect.py --zone              # alerte seulement dans la zone interdite (moitié droite)
-python detect.py --api http://localhost:3000/api/v1/alerts
+python detect.py --api http://localhost:8000/api/v1/alerts   # alertes + vidéo dans le dashboard
 ```
 
 | Option | Défaut | Rôle |
@@ -28,6 +28,8 @@ python detect.py --api http://localhost:3000/api/v1/alerts
 | `--cooldown` | 30 | secondes minimum entre deux alertes |
 | `--conf` | 0.5 | confiance minimale de détection |
 | `--no-window` | — | pas de fenêtre vidéo (mode serveur) |
+| `--no-stream` | — | ne pas envoyer la vidéo au dashboard |
+| `--stream-fps` | 5 | images par seconde envoyées au dashboard |
 
 Touches : `q` quitter, `s` capture manuelle. Les captures d'intrus vont dans `snapshots/` (non commité).
 

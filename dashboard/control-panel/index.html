@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SENTINEL-X · Contrôle Réactif</title>
+<style>
+:root{--bg:#0e1626;--card:#16213a;--tx:#e8eefc;--mu:#8fa0c4;--ok:#2ecc71;--off:#4a5878;--bad:#e74c3c;--ac:#2f6df6}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--tx);padding:16px;max-width:760px;margin-inline:auto}
+h1{font-size:1.2rem}.bar,.card{background:var(--card);border-radius:10px;padding:14px;margin-bottom:12px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+input{background:#0e1626;color:var(--tx);border:1px solid var(--off);border-radius:6px;padding:8px}
+button{background:var(--ac);color:#fff;border:0;border-radius:6px;padding:9px 14px;cursor:pointer;font-weight:600}
+button.sec{background:var(--off)}button:disabled{opacity:.4;cursor:not-allowed}
+.card{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.dot{display:inline-block;width:12px;height:12px;border-radius:50%;background:var(--off);margin-right:8px}
+.dot.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}.dot.red.on{background:var(--bad);box-shadow:0 0 8px var(--bad)}
+#conn{margin-left:auto;font-size:.85rem;color:var(--mu)}#log{white-space:pre-line;font:12px monospace;color:var(--mu);max-height:140px;overflow:auto}
+</style></head><body>
+<h1>SENTINEL-X · Panneau de commande</h1>
+<div class="bar">
+  <input id="dev" value="esp-01" size="8" aria-label="Identifiant du boîtier">
+  <input id="tok" type="password" placeholder="Token API" aria-label="Token API">
+  <button id="go">Connexion</button><span id="conn">déconnecté</span>
+</div>
+<div id="panel"></div>
+<div class="card"><div id="log" aria-live="polite"></div></div>
+<script>
+const ACT=[["buzzer","Buzzer d'alarme",""],["led_green","LED verte (statut OK)",""],["led_red","LED rouge (alerte)","red"]];
+const $=id=>document.getElementById(id);let ws=null,token="";
+const panel=$("panel");
+for(const [id,label,cls] of ACT){
+  const c=document.createElement("div");c.className="card";
+  c.innerHTML=`<div><span class="dot ${cls}" id="d-${id}"></span><b></b> <small id="s-${id}">?</small></div><div></div>`;
+  c.querySelector("b").textContent=label;
+  const box=c.lastElementChild;
+  for(const [st,txt,sec] of [["on","ON",0],["off","OFF",1],["pulse","Impulsion",1]]){
+    const b=document.createElement("button");b.textContent=txt;b.disabled=true;b.className="act "+(sec?"sec":"");
+    b.onclick=()=>send(id,st);box.appendChild(b)}
+  panel.appendChild(c)}
+function log(t){const l=$("log");l.textContent=new Date().toLocaleTimeString()+" "+t+"\n"+l.textContent}
+function setState(a,s){const d=$("d-"+a);if(!d)return;d.classList.toggle("on",s==="on");$("s-"+a).textContent=s==="on"?"ACTIF":"inactif"}
+function enable(v){document.querySelectorAll("button.act").forEach(b=>b.disabled=!v)}
+function connect(){
+  token=$("tok").value;if(ws)ws.close();
+  ws=new WebSocket((location.protocol==="https:"?"wss":"ws")+"://"+location.host+"/ws?token="+encodeURIComponent(token));
+  ws.onopen=()=>{$("conn").textContent="connecté";enable(true);log("WebSocket connecté")};
+  ws.onclose=()=>{$("conn").textContent="déconnecté";enable(false)};
+  ws.onmessage=e=>{const m=JSON.parse(e.data),dev=$("dev").value;
+    if(m.type==="snapshot"){const s=m.states[dev]||{};ACT.forEach(([a])=>setState(a,s[a]));if(s.online!==undefined)log("boîtier "+(s.online?"en ligne":"hors ligne"))}
+    else if(m.device_id===dev){
+      if(m.type==="ack"){setState(m.actuator,m.state);log("confirmé : "+m.actuator+" → "+m.state)}
+      else log("boîtier "+(m.online?"en ligne":"hors ligne"))}};
+}
+async function send(actuator,state){
+  const r=await fetch("/api/v1/commands",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},
+    body:JSON.stringify({device_id:$("dev").value,actuator,state})});
+  log(r.ok?"commande envoyée : "+actuator+" "+state:"échec ("+r.status+")")}
+$("go").onclick=connect;
+</script></body></html>

@@ -15,7 +15,7 @@ pip install -r requirements.txt
 
 ## Lancement
 
-Le simulateur se connecte en **MQTTS** avec le compte `boitier` (le même que l'ESP8266) : mot de passe lu dans `infra/.env`, AC dans `infra/mosquitto/certs/ca.crt` (les deux créés par `security/init-mqtt.sh`).
+Le simulateur se connecte en **MQTTS** avec le compte `simulateur` (mêmes droits que le boîtier, mais distinct dans les logs du broker) : mot de passe lu dans `infra/.env`, AC dans `infra/mosquitto/certs/ca.crt` (les deux créés par `security/init-mqtt.sh`).
 
 ```bash
 python simulator.py                                  # fonctionnement normal

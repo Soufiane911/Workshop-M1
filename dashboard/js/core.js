@@ -36,9 +36,15 @@ const SX = (() => {
 
   // ---------- Appels API (jamais d'exception : null / {ok:false} en cas d'échec) ----------
 
+  /** Session expirée ou absente : retour à la page de connexion. */
+  function toLogin(r) {
+    if (r.status === 401) location.replace("/login.html");
+    return r;
+  }
+
   async function get(path) {
     try {
-      const r = await fetch(`${API}${path}`);
+      const r = toLogin(await fetch(`${API}${path}`));
       return r.ok ? await r.json() : null;
     } catch {
       return null;
@@ -47,11 +53,11 @@ const SX = (() => {
 
   async function post(path, body) {
     try {
-      const r = await fetch(`${API}${path}`, {
+      const r = toLogin(await fetch(`${API}${path}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: body === undefined ? undefined : JSON.stringify(body),
-      });
+      }));
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
         return { ok: false, error: typeof err.detail === "string" ? err.detail : `erreur ${r.status}` };
@@ -315,7 +321,9 @@ const SX = (() => {
     const proto = location.protocol === "https:" ? "wss" : "ws";
     const ws = new WebSocket(`${proto}://${location.host}/ws`);
     ws.onopen = () => { setWs(true); retry = 1000; };
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
+      // 1008 : session refusée par le serveur -> vérifier (get renvoie vers la connexion si besoin)
+      if (ev.code === 1008) get("/auth/me");
       setWs(false);
       setTimeout(connectWs, retry);
       retry = Math.min(retry * 2, 10000);
@@ -339,8 +347,15 @@ const SX = (() => {
     if (f) { store.forecast = f; bus.emit("forecast", f); }
   }
 
+  async function logout() {
+    await post("/auth/logout");
+    location.replace("/login.html");
+  }
+
   async function init() {
     setInterval(() => { $("clock").textContent = new Date().toLocaleTimeString("fr-FR"); }, 1000);
+    $("logout").addEventListener("click", logout);
+    get("/auth/me").then((me) => { if (me) $("user").textContent = me.user; });
     setInterval(refreshLast, 1000);
 
     const [status, metrics, alerts, analysis] = await Promise.all([

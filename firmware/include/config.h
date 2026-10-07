@@ -16,8 +16,13 @@
 #define OLED_HEIGHT 64
 // DHT22 : -1 = broche détectée automatiquement au démarrage
 #define PIN_DHT -1
-// Buzzer et LED bicolore : -1 = non branché (les commandes sont acceptées mais sans effet)
-#define PIN_BUZZER -1
+// Buzzer sur D4 (GPIO2), câblé 3V3 -> (+) buzzer (-) -> D4 : il sonne quand D4 est à LOW.
+// GPIO2 doit rester à l'état haut au démarrage de l'ESP : avec ce câblage, pas de bip ni de blocage au boot.
+// La LED bleue de la carte (aussi sur GPIO2) s'allume en même temps que le buzzer.
+// Buzzer câblé D4 -> (+) buzzer (-) -> GND : mettre BUZZER_ACTIVE_LOW à 0.
+#define PIN_BUZZER D4
+#define BUZZER_ACTIVE_LOW 1
+// LED bicolore : -1 = non branchée (les commandes sont acceptées mais sans effet)
 #define PIN_LED_ROUGE -1
 #define PIN_LED_VERTE -1
 

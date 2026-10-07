@@ -11,7 +11,7 @@ docker compose down       # arrêt
 
 | Service | Port | État |
 |---|---|---|
-| Mosquitto | `127.0.0.1:8883`, `10.42.0.1:8883` | ✅ MQTTS (TLS), comptes + ACL |
+| Mosquitto | `127.0.0.1:8883`, `10.42.0.1:8883` (ESP8266 seulement, `security/init-firewall.sh`) | ✅ MQTTS (TLS), comptes + ACL |
 | API + dashboard | `127.0.0.1:8000` | ✅ voir `backend/README.md` |
 | PostgreSQL | interne (non exposé) | ✅ mot de passe dans `infra/.env` |
 

@@ -1,8 +1,17 @@
 # Sentinel-X — droits MQTT par compte (moindre privilège)
 # Tout ce qui n'est pas listé est refusé.
 
-# Le boîtier ESP8266 (et le simulateur, qui se fait passer pour lui)
+# Le boîtier ESP8266
 user boitier
+topic write sentinel/capteurs
+topic write sentinel/etat
+topic write sentinel/diagnostic
+topic read sentinel/commandes
+topic read sentinel/config
+
+# Le simulateur (plan B sans la carte) : mêmes droits que le boîtier, mais un compte à part
+# pour distinguer les vraies mesures des fausses dans les logs du broker
+user simulateur
 topic write sentinel/capteurs
 topic write sentinel/etat
 topic write sentinel/diagnostic

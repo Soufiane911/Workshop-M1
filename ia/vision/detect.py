@@ -6,14 +6,19 @@ et envoie une alerte à l'API quand une présence dure plus de N secondes.
 Usage :
     python detect.py                          # webcam 0, sans API
     python detect.py --camera 1               # autre webcam (ex. webcam USB)
-    python detect.py --api http://localhost:8000/api/v1/alerts   # alertes + vidéo vers le dashboard
+    python detect.py --api https://localhost:8000/api/v1/alerts   # alertes + vidéo vers le dashboard
     python detect.py --zone                   # alerte seulement dans la zone interdite
+
+Jeton de l'API : --token, sinon $API_TOKEN, sinon API_TOKEN de infra/.env (security/set-dashboard-password.py).
+HTTPS : le certificat de l'API est vérifié avec notre AC (--ca, défaut infra/mosquitto/certs/ca.crt).
 
 Touches : q = quitter, s = capture manuelle.
 """
 
 import argparse
 import json
+import os
+import ssl
 import threading
 import time
 import urllib.request
@@ -27,6 +32,8 @@ from ultralytics import YOLO
 FRAME_W, FRAME_H = 640, 480
 PERSON_CLASS = 0  # "person" dans COCO
 SNAPSHOT_DIR = Path(__file__).parent / "snapshots"
+ENV_FILE = Path(__file__).resolve().parents[2] / "infra" / ".env"
+CA_DEFAUT = Path(__file__).resolve().parents[2] / "infra" / "mosquitto" / "certs" / "ca.crt"
 
 # Zone interdite (x1, y1, x2, y2) en pixels sur l'image 640x480
 FORBIDDEN_ZONE = (320, 0, 640, 480)
@@ -44,7 +51,28 @@ def parse_args():
     p.add_argument("--no-window", action="store_true", help="ne pas afficher la fenêtre vidéo")
     p.add_argument("--no-stream", action="store_true", help="ne pas envoyer la vidéo au dashboard")
     p.add_argument("--stream-fps", type=float, default=5.0, help="images par seconde envoyées (défaut : 5)")
+    p.add_argument("--token", default=None, help="jeton de l'API (défaut : $API_TOKEN, sinon infra/.env)")
+    p.add_argument("--ca", type=Path, default=CA_DEFAUT, help="AC qui a signé le certificat HTTPS de l'API")
     return p.parse_args()
+
+
+def api_token(args):
+    """Jeton Bearer des modules IA : option, variable d'environnement, ou infra/.env."""
+    if args.token or os.environ.get("API_TOKEN"):
+        return args.token or os.environ["API_TOKEN"]
+    try:
+        for ligne in ENV_FILE.read_text().splitlines():
+            if ligne.startswith("API_TOKEN="):
+                return ligne.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return None
+
+
+# En-têtes communs des requêtes vers l'API (Authorization ajouté au démarrage si un jeton existe)
+HEADERS = {}
+# Contexte TLS des requêtes HTTPS : vérifie le certificat de l'API avec notre AC (défini au démarrage)
+TLS = None
 
 
 class FrameSender:
@@ -83,8 +111,8 @@ class FrameSender:
             start = time.monotonic()
             try:
                 req = urllib.request.Request(self.url, data=jpeg, method="POST",
-                                             headers={"Content-Type": "image/jpeg"})
-                urllib.request.urlopen(req, timeout=2).close()
+                                             headers={**HEADERS, "Content-Type": "image/jpeg"})
+                urllib.request.urlopen(req, timeout=2, context=TLS).close()
             except Exception as e:
                 if time.monotonic() - self.last_error > 10:  # évite d'inonder la console
                     print(f"[API] échec de l'envoi vidéo : {e}")
@@ -126,8 +154,8 @@ class StatsSender:
     def _post(self, payload):
         try:
             req = urllib.request.Request(self.url, data=json.dumps(payload).encode(),
-                                         headers={"Content-Type": "application/json"}, method="POST")
-            urllib.request.urlopen(req, timeout=2).close()
+                                         headers={**HEADERS, "Content-Type": "application/json"}, method="POST")
+            urllib.request.urlopen(req, timeout=2, context=TLS).close()
         except Exception as e:
             if time.monotonic() - self.last_error > 10:  # évite d'inonder la console
                 print(f"[API] échec de l'envoi des stats : {e}")
@@ -149,10 +177,10 @@ def send_alert(api_url, payload):
             req = urllib.request.Request(
                 api_url,
                 data=json.dumps(payload).encode(),
-                headers={"Content-Type": "application/json"},
+                headers={**HEADERS, "Content-Type": "application/json"},
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=3) as resp:
+            with urllib.request.urlopen(req, timeout=3, context=TLS) as resp:
                 print(f"[API] alerte envoyée ({resp.status})")
         except Exception as e:
             print(f"[API] échec de l'envoi : {e}")
@@ -189,6 +217,15 @@ def draw(frame, persons, zone_on, alarm, infer_ms, fps):
 
 def main():
     args = parse_args()
+    if args.api:
+        global TLS
+        if args.api.startswith("https://"):
+            TLS = ssl.create_default_context(cafile=str(args.ca))
+        token = api_token(args)
+        if token:
+            HEADERS["Authorization"] = f"Bearer {token}"
+        else:
+            print("[API] aucun jeton (API_TOKEN) : l'API refusera les envois (401)")
     model = YOLO(args.model)  # téléchargé automatiquement au premier lancement
 
     cap = cv2.VideoCapture(args.camera)

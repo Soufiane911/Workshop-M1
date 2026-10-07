@@ -42,7 +42,7 @@ SX.pages.camera = (() => {
     el.img.alt = "Flux de la webcam analysé par l'IA";
     el.img.hidden = true;
     el.empty = h("div", "video-empty", h("p", null, "Vision arrêtée : aucun flux."),
-      h("code", null, "python detect.py --api http://localhost:8000/api/v1/alerts"));
+      h("code", null, "python detect.py --api https://localhost:8000/api/v1/alerts"));
     el.inf = h("td", "val", "—");
     el.persons = h("td", "val", "—");
     const stats = h("section", "panel", h("h2", null, "Vision"),

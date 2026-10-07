@@ -25,7 +25,7 @@ CA_HEADER="$ROOT/firmware/include/ca_cert.h"
 SERVER_IP="${SERVER_IP:-10.42.0.1}"       # IP du PC serveur sur le WiFi de table
 MOSQUITTO_IMAGE="eclipse-mosquitto:2"
 MOSQUITTO_UID=1883                         # utilisateur "mosquitto" dans l'image officielle
-USERS=(boitier api ia)                     # comptes MQTT (droits : infra/mosquitto/config/acl)
+USERS=(boitier simulateur api ia)         # comptes MQTT (droits : infra/mosquitto/config/acl)
 
 FORCE=false
 [[ "${1:-}" == "--force" ]] && FORCE=true

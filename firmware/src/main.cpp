@@ -72,8 +72,12 @@ void setOutput(int pin, bool on) {
   if (pin >= 0) digitalWrite(pin, on ? HIGH : LOW);
 }
 
+void setBuzzer(bool on) {
+  setOutput(PIN_BUZZER, BUZZER_ACTIVE_LOW ? !on : on);
+}
+
 void appliquerSorties() {
-  setOutput(PIN_BUZZER, buzzer);
+  setBuzzer(buzzer);
   setOutput(PIN_LED_ROUGE, ledRouge);
   setOutput(PIN_LED_VERTE, !ledRouge);
 }
@@ -285,7 +289,7 @@ void modeSecours() {
   setOutput(PIN_LED_ROUGE, alerte || ledRouge);
   setOutput(PIN_LED_VERTE, !(alerte || ledRouge));
   // Bips courts tant qu'une présence est détectée
-  setOutput(PIN_BUZZER, buzzer || (alerte && (millis() / 250) % 2));
+  setBuzzer(buzzer || (alerte && (millis() / 250) % 2));
 }
 
 // ---------- Programme principal ----------
@@ -294,7 +298,10 @@ void setup() {
   Serial.begin(115200);
   delay(200);
   pinMode(PIN_PIR, INPUT);
-  if (PIN_BUZZER >= 0) pinMode(PIN_BUZZER, OUTPUT);
+  if (PIN_BUZZER >= 0) {
+    setBuzzer(false);  // niveau « silence » fixé avant de passer en sortie : pas de bip au démarrage
+    pinMode(PIN_BUZZER, OUTPUT);
+  }
   if (PIN_LED_ROUGE >= 0) pinMode(PIN_LED_ROUGE, OUTPUT);
   if (PIN_LED_VERTE >= 0) pinMode(PIN_LED_VERTE, OUTPUT);
   appliquerSorties();

@@ -1,8 +1,32 @@
+# Rotation des logs de tous les conteneurs (MCO) : 3 fichiers de 10 Mo max par service
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+# Durcissement commun (sujet : « isolation stricte des privilèges des daemons Docker ») :
+# un processus ne peut pas regagner de privilèges (setuid, sudo...), et les limites
+# mémoire / nombre de processus contiennent un DoS ou une fuite (MCO)
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  pids_limit: 256
+
 services:
   mosquitto:
     image: eclipse-mosquitto:2
     container_name: sentinel-mosquitto
     restart: unless-stopped
+    logging: *logging
+    <<: *hardening
+    # Aucun privilège Linux sauf ceux qu'il faut pour démarrer en root
+    # puis passer sous l'utilisateur mosquitto (SETUID/SETGID) et préparer /mosquitto/data (CHOWN)
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID]
+    read_only: true
+    mem_limit: 128m
+    cpus: 0.5
     ports:
       # MQTTS uniquement (aucun port en clair) : PC serveur + WiFi de table (le boîtier ESP8266)
       - "127.0.0.1:8883:8883"
@@ -12,12 +36,22 @@ services:
       - ./mosquitto/config:/mosquitto/config:ro
       - ./mosquitto/certs:/mosquitto/certs:ro
       - mosquitto-data:/mosquitto/data
-      - mosquitto-log:/mosquitto/log
 
   db:
     image: postgres:16-alpine
     container_name: sentinel-db
     restart: unless-stopped
+    logging: *logging
+    <<: *hardening
+    # L'entrypoint démarre en root pour préparer le dossier de données puis passe sous « postgres »
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETUID, SETGID]
+    read_only: true
+    tmpfs:
+      - /var/run/postgresql
+      - /tmp
+    mem_limit: 512m
+    cpus: 1
     environment:
       POSTGRES_DB: sentinel
       POSTGRES_USER: sentinel
@@ -35,11 +69,25 @@ services:
     build: ../backend
     container_name: sentinel-api
     restart: unless-stopped
+    logging: *logging
+    <<: *hardening
+    # Tourne en « sentinel » (non-root) : aucune capability nécessaire. Seul /data/snapshots est inscriptible
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs:
+      - /tmp
+    mem_limit: 512m
+    cpus: 1.5
     depends_on:
       db:
         condition: service_healthy
       mosquitto:
         condition: service_started
+    # HTTPS uniquement (security/init-https.sh) : TLS 1.2 minimum, échange ECDHE + chiffrement AEAD
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 8000
+      --ssl-certfile /certs/api.crt --ssl-keyfile /certs/api.key
+      --ssl-ciphers ECDHE+AESGCM:ECDHE+CHACHA20
     environment:
       DATABASE_URL: postgresql+psycopg://sentinel:${POSTGRES_PASSWORD}@db:5432/sentinel
       MQTT_HOST: mosquitto
@@ -49,13 +97,21 @@ services:
       MQTT_CA_CERT: /certs/ca.crt
       DASHBOARD_DIR: /app/dashboard
       SNAPSHOT_DIR: /data/snapshots
+      # Authentification (security/set-dashboard-password.py) : compte superviseur + jeton des modules IA
+      DASHBOARD_USER: ${DASHBOARD_USER:-admin}
+      DASHBOARD_PASSWORD_HASH: ${DASHBOARD_PASSWORD_HASH:?lancer security/set-dashboard-password.py}
+      API_TOKEN: ${API_TOKEN:?lancer security/set-dashboard-password.py}
+      # Cookie de session envoyé uniquement en HTTPS
+      COOKIE_SECURE: "true"
     ports:
       - "127.0.0.1:8000:8000"
-      # Dashboard pour l'équipe connectée au WiFi de table (sans authentification pour l'instant)
+      # Dashboard pour l'équipe connectée au WiFi de table (connexion obligatoire)
       - "10.42.0.1:8000:8000"
     volumes:
       - ../dashboard:/app/dashboard:ro
       - ./mosquitto/certs/ca.crt:/certs/ca.crt:ro
+      - ./api-certs/api.crt:/certs/api.crt:ro
+      - ./api-certs/api.key:/certs/api.key:ro
       - api-snapshots:/data/snapshots
 
   anomalies:
@@ -64,6 +120,14 @@ services:
       dockerfile: ia/anomalies/Dockerfile
     container_name: sentinel-anomalies
     restart: unless-stopped
+    logging: *logging
+    <<: *hardening
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs:
+      - /tmp
+    mem_limit: 512m
+    cpus: 1
     depends_on:
       - mosquitto
       - api
@@ -73,13 +137,15 @@ services:
       MQTT_USERNAME: ia
       MQTT_PASSWORD: ${MQTT_IA_PASSWORD:?lancer security/init-mqtt.sh}
       MQTT_CA_CERT: /certs/ca.crt
-      API_URL: http://api:8000/api/v1
+      API_URL: https://api:8000/api/v1
+      # urllib vérifie le certificat de l'API avec notre AC (nom « api » dans le certificat)
+      SSL_CERT_FILE: /certs/ca.crt
+      API_TOKEN: ${API_TOKEN:?lancer security/set-dashboard-password.py}
     volumes:
       - ./mosquitto/certs/ca.crt:/certs/ca.crt:ro
     # Aucun port exposé : le service ne fait que lire MQTT et écrire dans l'API
 
 volumes:
   mosquitto-data:
-  mosquitto-log:
   db-data:
   api-snapshots:

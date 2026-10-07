@@ -10,8 +10,8 @@ cp .env.example .env        # puis mettre un vrai mot de passe (ne jamais commit
 docker compose up -d --build
 ```
 
-- Dashboard : http://localhost:8000
-- Documentation interactive de l'API : http://localhost:8000/docs
+- Dashboard : https://localhost:8000 (connexion obligatoire)
+- Documentation interactive de l'API : désactivée (durcissement)
 
 ## Routes
 

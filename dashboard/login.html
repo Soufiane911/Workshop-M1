@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connexion · Sentinel-X</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="login-page">
+  <header class="bar">
+    <div class="bar-title">
+      <strong>Sentinel-X</strong>
+      <span>Supervision du poste</span>
+    </div>
+  </header>
+
+  <main class="login-wrap">
+    <section class="login" aria-labelledby="login-title">
+      <h2 id="login-title">Connexion superviseur</h2>
+      <form id="login-form" novalidate>
+        <label>Identifiant
+          <input id="username" name="username" autocomplete="username" required autofocus>
+        </label>
+        <label>Mot de passe
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <p class="login-error" id="login-error" role="alert" hidden></p>
+        <button class="btn" type="submit" id="login-btn">Se connecter</button>
+        <p class="login-note">Accès réservé. Les tentatives sont journalisées.</p>
+      </form>
+    </section>
+  </main>
+
+  <script src="js/login.js"></script>
+</body>
+</html>

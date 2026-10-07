@@ -33,6 +33,12 @@ SX.pages.systeme = (() => {
     const parts = [];
     if (a.kind === "ack") {
       parts.push(`alarme #${p.alert_id ?? "?"} acquittée`);
+    } else if (a.kind === "login") {
+      parts.push("connexion au dashboard");
+    } else if (a.kind === "logout") {
+      parts.push("déconnexion");
+    } else if (a.kind === "login_echec") {
+      parts.push(`mot de passe refusé pour « ${p.user ?? "?"} »`);
     } else {
       if ("buzzer" in p) parts.push(p.buzzer ? "buzzer en marche" : "buzzer à l'arrêt");
       if ("led" in p) parts.push(`voyant ${p.led}`);
@@ -44,7 +50,8 @@ SX.pages.systeme = (() => {
 
   async function pollActions() {
     const list = await get("/actions?limit=100");
-    const KIND = { command: "commande", config: "configuration", ack: "acquittement" };
+    const KIND = { command: "commande", config: "configuration", ack: "acquittement",
+      login: "connexion", logout: "déconnexion", login_echec: "CONNEXION REFUSÉE" };
     el.actions.replaceChildren();
     (list || []).forEach((a) => el.actions.append(h("tr", null,
       h("td", "t", `${new Date(a.ts).toLocaleDateString("fr-FR")} ${clock(a.ts)}`), h("td", null, a.actor || "—"),

@@ -7,12 +7,13 @@ from contextlib import asynccontextmanager
 from datetime import timedelta
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select, text
 
+from . import auth
 from .config import DASHBOARD_DIR, OFFLINE_AFTER_S, SNAPSHOT_DIR, T_COMMANDES, T_CONFIG
 from .db import Action, Alert, Measure, SessionLocal, init_db, utcnow
 from .diagnostics import compute_sensors
@@ -46,7 +47,49 @@ async def lifespan(app: FastAPI):
     bridge.stop()
 
 
-app = FastAPI(title="Sentinel-X API", version="1.0", lifespan=lifespan)
+# Documentation interactive désactivée : elle décrirait toute l'API à un attaquant
+app = FastAPI(title="Sentinel-X API", version="1.0", lifespan=lifespan,
+              docs_url=None, redoc_url=None, openapi_url=None)
+
+
+# --- Authentification (voir auth.py) ---
+
+# Accessibles sans connexion : la page de login et ce qu'elle charge
+PUBLIC = {"/api/v1/health", "/api/v1/auth/login", "/login.html", "/style.css", "/js/login.js"}
+# Seules routes ouvertes au jeton des modules IA (en plus de la session)
+MACHINE = {("POST", "/api/v1/alerts"), ("POST", "/api/v1/analysis"),
+           ("POST", "/api/v1/vision/frame"), ("POST", "/api/v1/vision/stats")}
+
+
+@app.middleware("http")
+async def require_auth(request: Request, call_next):
+    path = request.url.path
+    if path in PUBLIC:
+        return await call_next(request)
+    user = auth.sessions.user(request.cookies.get(auth.COOKIE))
+    if user is None and (request.method, path) in MACHINE and auth.check_token(request.headers.get("authorization")):
+        user = "module-ia"
+    if user is None:
+        if path.startswith(("/api/", "/snapshots/")):
+            return JSONResponse({"detail": "authentification requise"}, status_code=401)
+        return RedirectResponse("/login.html", status_code=303)
+    request.state.user = user
+    response = await call_next(request)
+    # Pages et données du dashboard : jamais gardées en cache (bouton « précédent » après déconnexion)
+    response.headers.setdefault("Cache-Control", "no-store")
+    return response
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; img-src 'self' blob:; connect-src 'self'; "
+        "style-src 'self'; script-src 'self'; frame-ancestors 'none'")
+    return response
 
 
 # --- Schémas ---
@@ -92,11 +135,57 @@ class AnalysisIn(BaseModel):
     model: str | None = Field(None, max_length=64)
 
 
-def actor(request: Request) -> str:
+class LoginIn(BaseModel):
+    username: str = Field(max_length=64)
+    password: str = Field(max_length=256)
+
+
+def client_ip(request: Request) -> str:
     return request.client.host if request.client else "inconnu"
 
 
+def actor(request: Request) -> str:
+    """Qui a fait l'action : compte connecté + adresse IP (journal des actions)."""
+    user = getattr(request.state, "user", None)
+    return f"{user} ({client_ip(request)})" if user else client_ip(request)
+
+
 # --- Routes ---
+
+@app.post("/api/v1/auth/login")
+async def login(body: LoginIn, request: Request, response: Response):
+    ip = client_ip(request)
+    wait = auth.throttle.locked_for(ip)
+    if wait:
+        raise HTTPException(429, f"trop d'essais, réessayer dans {int(wait // 60) + 1} min")
+    # PBKDF2 (~0,3 s) hors de la boucle asyncio : le reste de l'API reste fluide
+    ok = await asyncio.to_thread(auth.check_credentials, body.username, body.password)
+    if not ok:
+        auth.throttle.fail(ip)
+        log.warning("connexion refusée pour %r depuis %s", body.username[:64], ip)
+        await asyncio.to_thread(log_action, ip, "login_echec", {"user": body.username[:64]})
+        raise HTTPException(401, "identifiant ou mot de passe incorrect")
+    auth.throttle.reset(ip)
+    sid = auth.sessions.create(body.username)
+    response.set_cookie(auth.COOKIE, sid, max_age=int(auth.SESSION_TTL_S), httponly=True,
+                        samesite="strict", secure=auth.COOKIE_SECURE, path="/")
+    log.info("connexion de %s depuis %s", body.username, ip)
+    await asyncio.to_thread(log_action, f"{body.username} ({ip})", "login", {})
+    return {"user": body.username}
+
+
+@app.post("/api/v1/auth/logout")
+def logout(request: Request, response: Response):
+    auth.sessions.delete(request.cookies.get(auth.COOKIE))
+    response.delete_cookie(auth.COOKIE, path="/")
+    log_action(actor(request), "logout", {})
+    return {"ok": True}
+
+
+@app.get("/api/v1/auth/me")
+def me(request: Request):
+    return {"user": request.state.user}
+
 
 @app.get("/api/v1/health")
 def health():
@@ -260,6 +349,10 @@ async def vision_stream():
 
 @app.websocket("/ws")
 async def websocket(ws: WebSocket):
+    # Le middleware HTTP ne voit pas les WebSocket : contrôle de la session ici
+    if auth.sessions.user(ws.cookies.get(auth.COOKIE)) is None:
+        await ws.close(code=1008)
+        return
     await hub.connect(ws)
     try:
         await ws.send_json({"type": "state", "data": hub.snapshot_state()})

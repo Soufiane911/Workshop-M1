@@ -21,6 +21,8 @@ Prérequis : Docker (avec `docker compose`), Python 3.12+, `openssl`.
 ```bash
 ./security/init-mqtt.sh                                         # certificats TLS + comptes MQTT -> infra/.env
 echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)" >> infra/.env  # mot de passe de la base
+python3 security/set-dashboard-password.py                      # compte du dashboard + jeton des modules IA
+./security/init-https.sh                                        # certificat HTTPS du dashboard
 ```
 
 > Le compose publie aussi les ports sur `10.42.0.1` (WiFi de table). Si cette adresse n'existe pas sur ton PC,
@@ -35,7 +37,7 @@ docker compose ps          # vérifier que tout tourne
 docker compose logs -f     # suivre les logs
 ```
 
-Dashboard : <http://localhost:8000>
+Dashboard : <https://localhost:8000> (connexion avec le compte créé par `set-dashboard-password.py`)
 
 ### 3. Envoyer des données (sans le boîtier)
 
@@ -53,7 +55,7 @@ Avec le vrai boîtier : voir `firmware/README.md` (compiler et flasher avec Plat
 ```bash
 cd ia/vision
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python detect.py --api http://localhost:8000/api/v1/alerts
+.venv/bin/python detect.py --api https://localhost:8000/api/v1/alerts   # jeton lu dans infra/.env
 ```
 
 Le tout est arrêté par `cd infra && docker compose down`.

@@ -15,7 +15,7 @@ avec m² la distance de Mahalanobis au carré. Puis
 
 Usage :
     python detector.py
-    python detector.py --api http://localhost:8000/api/v1 --mqtt-host localhost
+    SSL_CERT_FILE=../../infra/mosquitto/certs/ca.crt python detector.py --api https://localhost:8000/api/v1 --mqtt-host localhost
     python detector.py --mqtt-port 8883 --mqtt-ca ca.crt --mqtt-user ia --mqtt-password ...
 
 Chaque option peut aussi venir d'une variable d'environnement (conteneur Docker) :
@@ -200,8 +200,8 @@ def propre(f):
 def main():
     p = argparse.ArgumentParser(description="Détection d'anomalies Sentinel-X")
     env = os.environ.get
-    p.add_argument("--api", default=env("API_URL", "http://localhost:8000/api/v1"),
-                   help="base de l'API (défaut : http://localhost:8000/api/v1)")
+    p.add_argument("--api", default=env("API_URL", "https://localhost:8000/api/v1"),
+                   help="base de l'API (défaut : https://localhost:8000/api/v1)")
     p.add_argument("--api-token", default=env("API_TOKEN"), help="jeton Bearer envoyé à l'API (optionnel)")
     p.add_argument("--mqtt-host", default=env("MQTT_HOST", "localhost"))
     p.add_argument("--mqtt-port", type=int, default=int(env("MQTT_PORT", "8883")))

@@ -66,9 +66,9 @@ def parse_args():
     p = argparse.ArgumentParser(description="Simulateur ESP8266 Sentinel-X")
     p.add_argument("--host", default="localhost", help="adresse du broker (défaut : localhost)")
     p.add_argument("--port", type=int, default=8883, help="port du broker (défaut : 8883, MQTTS)")
-    p.add_argument("--user", default="boitier", help="compte MQTT (défaut : boitier, comme l'ESP8266)")
+    p.add_argument("--user", default="simulateur", help="compte MQTT (défaut : simulateur, droits du boîtier)")
     p.add_argument("--password", default=None,
-                   help="mot de passe MQTT (défaut : $MQTT_PASSWORD, sinon MQTT_BOITIER_PASSWORD de infra/.env)")
+                   help="mot de passe MQTT (défaut : $MQTT_PASSWORD, sinon MQTT_<COMPTE>_PASSWORD de infra/.env)")
     p.add_argument("--ca", type=Path, default=CA_DEFAUT, help="certificat de l'AC (défaut : infra/mosquitto/certs/ca.crt)")
     p.add_argument("--scenario", choices=SCENARIOS, default="normal")
     p.add_argument("--start-after", type=float, default=30, help="secondes de normal avant l'incident (défaut : 30)")
@@ -146,8 +146,9 @@ def mot_de_passe(args):
     if args.password or os.environ.get("MQTT_PASSWORD"):
         return args.password or os.environ["MQTT_PASSWORD"]
     try:
+        var = f"MQTT_{args.user.upper()}_PASSWORD="
         for ligne in (INFRA / ".env").read_text().splitlines():
-            if ligne.startswith("MQTT_BOITIER_PASSWORD="):
+            if ligne.startswith(var):
                 return ligne.split("=", 1)[1].strip()
     except OSError:
         pass

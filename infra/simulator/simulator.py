@@ -23,14 +23,18 @@ import argparse
 import csv
 import json
 import math
+import os
 import random
 import signal
+import ssl
 import time
 from pathlib import Path
 
 import paho.mqtt.client as mqtt
 
 DEVICE = "sentinel-01"
+INFRA = Path(__file__).resolve().parent.parent
+CA_DEFAUT = INFRA / "mosquitto" / "certs" / "ca.crt"
 T_CAPTEURS = "sentinel/capteurs"
 T_ETAT = "sentinel/etat"
 T_COMMANDES = "sentinel/commandes"
@@ -61,7 +65,11 @@ SCENARIOS = {
 def parse_args():
     p = argparse.ArgumentParser(description="Simulateur ESP8266 Sentinel-X")
     p.add_argument("--host", default="localhost", help="adresse du broker (défaut : localhost)")
-    p.add_argument("--port", type=int, default=1883, help="port du broker (défaut : 1883)")
+    p.add_argument("--port", type=int, default=8883, help="port du broker (défaut : 8883, MQTTS)")
+    p.add_argument("--user", default="boitier", help="compte MQTT (défaut : boitier, comme l'ESP8266)")
+    p.add_argument("--password", default=None,
+                   help="mot de passe MQTT (défaut : $MQTT_PASSWORD, sinon MQTT_BOITIER_PASSWORD de infra/.env)")
+    p.add_argument("--ca", type=Path, default=CA_DEFAUT, help="certificat de l'AC (défaut : infra/mosquitto/certs/ca.crt)")
     p.add_argument("--scenario", choices=SCENARIOS, default="normal")
     p.add_argument("--start-after", type=float, default=30, help="secondes de normal avant l'incident (défaut : 30)")
     p.add_argument("--interval", type=float, default=2.0, help="secondes entre deux mesures (défaut : 2)")
@@ -133,9 +141,26 @@ class Boitier:
         }
 
 
+def mot_de_passe(args):
+    """Mot de passe MQTT : option, variable d'environnement, ou infra/.env (généré par security/init-mqtt.sh)."""
+    if args.password or os.environ.get("MQTT_PASSWORD"):
+        return args.password or os.environ["MQTT_PASSWORD"]
+    try:
+        for ligne in (INFRA / ".env").read_text().splitlines():
+            if ligne.startswith("MQTT_BOITIER_PASSWORD="):
+                return ligne.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    raise SystemExit("mot de passe MQTT introuvable : lancer security/init-mqtt.sh ou passer --password")
+
+
 def connecter(args, boitier):
     """Client MQTT du boîtier simulé : publie l'état, applique commandes et configuration."""
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=f"{DEVICE}-sim")
+    client.username_pw_set(args.user, mot_de_passe(args))
+    if not args.ca.is_file():
+        raise SystemExit(f"certificat de l'AC introuvable ({args.ca}) : lancer security/init-mqtt.sh")
+    client.tls_set(ca_certs=str(args.ca), tls_version=ssl.PROTOCOL_TLS_CLIENT)
     # Testament : si le simulateur meurt, le broker annonce "offline"
     client.will_set(T_ETAT, json.dumps({"device": DEVICE, "online": False}), qos=1, retain=True)
 
@@ -148,7 +173,7 @@ def connecter(args, boitier):
         if reason_code.is_failure:
             print(f"[MQTT] connexion refusée : {reason_code}")
             return
-        print(f"[MQTT] connecté à {args.host}:{args.port}")
+        print(f"[MQTT] connecté à {args.host}:{args.port} (TLS, compte {args.user})")
         c.subscribe([(T_COMMANDES, 1), (T_CONFIG, 1)])
         publier_etat()
 

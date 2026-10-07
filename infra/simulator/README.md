@@ -7,13 +7,15 @@ Permet au backend, au dashboard et à l'IA de travailler sans la carte. Sert aus
 
 ```bash
 cd infra
-docker compose up -d                 # lance Mosquitto (localhost:1883)
+docker compose up -d                 # lance Mosquitto (MQTTS localhost:8883)
 cd simulator
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
 ## Lancement
+
+Le simulateur se connecte en **MQTTS** avec le compte `boitier` (le même que l'ESP8266) : mot de passe lu dans `infra/.env`, AC dans `infra/mosquitto/certs/ca.crt` (les deux créés par `security/init-mqtt.sh`).
 
 ```bash
 python simulator.py                                  # fonctionnement normal
@@ -48,8 +50,12 @@ Un capteur désactivé renvoie `null`. Le gaz est la valeur brute de l'entrée a
 
 ## Tester à la main
 
+Avec le compte `api` (le seul autorisé à tout lire et à envoyer des ordres) :
+
 ```bash
-docker exec sentinel-mosquitto mosquitto_sub -t 'sentinel/#' -v          # tout écouter
-docker exec sentinel-mosquitto mosquitto_pub -t sentinel/commandes -m '{"buzzer":true}'
-docker exec sentinel-mosquitto mosquitto_pub -t sentinel/config -m '{"pir":false}'
+source infra/.env
+MQ="-h localhost -p 8883 --cafile /mosquitto/certs/ca.crt -u api -P $MQTT_API_PASSWORD -i outil-$RANDOM"
+docker exec sentinel-mosquitto mosquitto_sub $MQ -t 'sentinel/#' -v          # tout écouter
+docker exec sentinel-mosquitto mosquitto_pub $MQ -t sentinel/commandes -m '{"buzzer":true}'
+docker exec sentinel-mosquitto mosquitto_pub $MQ -t sentinel/config -m '{"pir":false}'
 ```

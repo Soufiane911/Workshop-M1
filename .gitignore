@@ -18,3 +18,9 @@ ia/vision/snapshots/
 ia/anomalies/*.joblib
 ia/anomalies/data/
 firmware/include/secrets.h
+# Cyber : secrets générés par security/init-mqtt.sh
+infra/pki/
+infra/mosquitto/certs/
+infra/mosquitto/config/passwd
+firmware/include/ca_cert.h
+*.srl

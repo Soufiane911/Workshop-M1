@@ -10,3 +10,6 @@ dashboard
 docs
 firmware
 security
+# Secrets Cyber (security/init-mqtt.sh)
+infra/mosquitto
+infra/pki

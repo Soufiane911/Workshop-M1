@@ -6,7 +6,11 @@ DATABASE_URL = os.getenv(
 )
 
 MQTT_HOST = os.getenv("MQTT_HOST", "localhost")
-MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
+MQTT_PORT = int(os.getenv("MQTT_PORT", "8883"))
+MQTT_USERNAME = os.getenv("MQTT_USERNAME")
+MQTT_PASSWORD = os.getenv("MQTT_PASSWORD")
+# Certificat de l'AC : active TLS (MQTTS). Vide = MQTT en clair (tests locaux uniquement)
+MQTT_CA_CERT = os.getenv("MQTT_CA_CERT")
 
 DEVICE_ID = os.getenv("DEVICE_ID", "sentinel-01")
 

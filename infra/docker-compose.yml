@@ -4,13 +4,13 @@ services:
     container_name: sentinel-mosquitto
     restart: unless-stopped
     ports:
-      # Dev : MQTT non chiffré, accessible uniquement depuis le PC serveur.
-      # Le TLS (8883) et l'ouverture au WiFi de table seront ajoutés par la partie Cyber.
-      - "127.0.0.1:1883:1883"
-      # WiFi de table (point d'accès du PC, 10.42.0.1) : le boîtier ESP8266 se connecte ici
-      - "10.42.0.1:1883:1883"
+      # MQTTS uniquement (aucun port en clair) : PC serveur + WiFi de table (le boîtier ESP8266)
+      - "127.0.0.1:8883:8883"
+      - "10.42.0.1:8883:8883"
     volumes:
+      # Certificats + passwd : générés par security/init-mqtt.sh
       - ./mosquitto/config:/mosquitto/config:ro
+      - ./mosquitto/certs:/mosquitto/certs:ro
       - mosquitto-data:/mosquitto/data
       - mosquitto-log:/mosquitto/log
 
@@ -43,7 +43,10 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://sentinel:${POSTGRES_PASSWORD}@db:5432/sentinel
       MQTT_HOST: mosquitto
-      MQTT_PORT: "1883"
+      MQTT_PORT: "8883"
+      MQTT_USERNAME: api
+      MQTT_PASSWORD: ${MQTT_API_PASSWORD:?lancer security/init-mqtt.sh}
+      MQTT_CA_CERT: /certs/ca.crt
       DASHBOARD_DIR: /app/dashboard
       SNAPSHOT_DIR: /data/snapshots
     ports:
@@ -52,6 +55,7 @@ services:
       - "10.42.0.1:8000:8000"
     volumes:
       - ../dashboard:/app/dashboard:ro
+      - ./mosquitto/certs/ca.crt:/certs/ca.crt:ro
       - api-snapshots:/data/snapshots
 
   anomalies:
@@ -65,9 +69,13 @@ services:
       - api
     environment:
       MQTT_HOST: mosquitto
-      MQTT_PORT: "1883"
+      MQTT_PORT: "8883"
+      MQTT_USERNAME: ia
+      MQTT_PASSWORD: ${MQTT_IA_PASSWORD:?lancer security/init-mqtt.sh}
+      MQTT_CA_CERT: /certs/ca.crt
       API_URL: http://api:8000/api/v1
-      # TLS / comptes (partie Cyber) : MQTT_PORT 8883, MQTT_CA_CERT, MQTT_USERNAME, MQTT_PASSWORD
+    volumes:
+      - ./mosquitto/certs/ca.crt:/certs/ca.crt:ro
     # Aucun port exposé : le service ne fait que lire MQTT et écrire dans l'API
 
 volumes:

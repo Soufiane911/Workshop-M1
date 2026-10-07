@@ -62,5 +62,6 @@ Les colonnes `acked_at` / `acked_by` sont ajoutées automatiquement au démarrag
 
 ## À faire (partie Cyber)
 
-- TLS (MQTTS 8883, HTTPS), comptes et ACL Mosquitto
+- ~~TLS MQTTS 8883, comptes et ACL Mosquitto~~ ✅ (voir `security/README.md`)
+- HTTPS
 - Authentification sur les routes de commande et de configuration

@@ -1,0 +1,20 @@
+# Sentinel-X — droits MQTT par compte (moindre privilège)
+# Tout ce qui n'est pas listé est refusé.
+
+# Le boîtier ESP8266 (et le simulateur, qui se fait passer pour lui)
+user boitier
+topic write sentinel/capteurs
+topic write sentinel/etat
+topic write sentinel/diagnostic
+topic read sentinel/commandes
+topic read sentinel/config
+
+# L'API : lit tout, seule à pouvoir piloter le boîtier
+user api
+topic read sentinel/#
+topic write sentinel/commandes
+topic write sentinel/config
+
+# Le service IA anomalies : lecture seule des mesures
+user ia
+topic read sentinel/capteurs

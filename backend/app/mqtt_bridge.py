@@ -2,12 +2,13 @@
 
 import json
 import logging
+import ssl
 import time
 
 import paho.mqtt.client as mqtt
 
-from .config import (DEVICE_ID, MQTT_HOST, MQTT_PORT, PIR_ALERT_COOLDOWN_S,
-                     T_CAPTEURS, T_ETAT)
+from .config import (DEVICE_ID, MQTT_CA_CERT, MQTT_HOST, MQTT_PASSWORD, MQTT_PORT,
+                     MQTT_USERNAME, PIR_ALERT_COOLDOWN_S, T_CAPTEURS, T_ETAT)
 from .db import Measure, SessionLocal, utcnow
 from .hub import hub
 from .services import create_alert, set_online
@@ -31,6 +32,13 @@ class MqttBridge:
         self.client.on_disconnect = self._on_disconnect
         self.client.on_message = self._on_message
         self.client.reconnect_delay_set(min_delay=1, max_delay=10)
+        if MQTT_USERNAME:
+            self.client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
+        if MQTT_CA_CERT:
+            # Vérifie le certificat du broker (signé par notre AC) et son nom
+            self.client.tls_set(ca_certs=MQTT_CA_CERT, tls_version=ssl.PROTOCOL_TLS_CLIENT)
+        else:
+            log.warning("MQTT_CA_CERT absent : connexion MQTT NON CHIFFRÉE")
         self.connected = False
         self._last_presence = False
         self._last_pir_alert = 0.0
@@ -56,7 +64,7 @@ class MqttBridge:
             log.error("connexion MQTT refusée : %s", reason_code)
             return
         self.connected = True
-        log.info("connecté à Mosquitto %s:%s", MQTT_HOST, MQTT_PORT)
+        log.info("connecté à Mosquitto %s:%s (%s)", MQTT_HOST, MQTT_PORT, "TLS" if MQTT_CA_CERT else "en clair")
         client.subscribe([(T_CAPTEURS, 0), (T_ETAT, 1)])
 
     def _on_disconnect(self, client, userdata, flags, reason_code, properties):

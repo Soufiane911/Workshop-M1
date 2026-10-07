@@ -204,7 +204,7 @@ def main():
                    help="base de l'API (défaut : http://localhost:8000/api/v1)")
     p.add_argument("--api-token", default=env("API_TOKEN"), help="jeton Bearer envoyé à l'API (optionnel)")
     p.add_argument("--mqtt-host", default=env("MQTT_HOST", "localhost"))
-    p.add_argument("--mqtt-port", type=int, default=int(env("MQTT_PORT", "1883")))
+    p.add_argument("--mqtt-port", type=int, default=int(env("MQTT_PORT", "8883")))
     p.add_argument("--mqtt-user", default=env("MQTT_USERNAME"))
     p.add_argument("--mqtt-password", default=env("MQTT_PASSWORD"))
     p.add_argument("--mqtt-ca", default=env("MQTT_CA_CERT"), help="certificat de l'AC : active TLS (MQTTS)")

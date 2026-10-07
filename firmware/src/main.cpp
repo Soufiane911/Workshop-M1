@@ -4,6 +4,8 @@
 // En boucle (sans delay bloquant) : lecture des capteurs, publication MQTT,
 // affichage OLED, réception des commandes et de la configuration.
 // Même format JSON que le simulateur (infra/simulator) : l'API ne voit pas la différence.
+// Sécurité : MQTTS (TLS 1.2) avec vérification du certificat du broker par l'AC embarquée,
+// et authentification par compte (ACL côté Mosquitto : voir infra/mosquitto/config/acl).
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -12,12 +14,25 @@
 #include <DHT.h>
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
+#include <WiFiClientSecure.h>
 #include <Wire.h>
 
 #include "config.h"
 #include "secrets.h"
+#if __has_include("ca_cert.h")
+#include "ca_cert.h"
+#else
+#error "firmware/include/ca_cert.h absent : lancer security/init-mqtt.sh sur le PC serveur"
+#endif
+#if !defined(MQTT_USER) || !defined(MQTT_PASS)
+#error "secrets.h : définir MQTT_USER et MQTT_PASS (voir secrets.example.h)"
+#endif
+#ifndef BUILD_EPOCH
+#define BUILD_EPOCH 1800000000  // repli hors PlatformIO (janv. 2027) : doit tomber dans la validité du certificat
+#endif
 
-WiFiClient net;
+BearSSL::WiFiClientSecure net;
+BearSSL::X509List caCert(CA_CERT);
 PubSubClient mqtt(net);
 Adafruit_SSD1306 oled(OLED_WIDTH, OLED_HEIGHT, &Wire, -1);
 DHT* dht = nullptr;
@@ -41,6 +56,7 @@ bool ledRouge = false;
 uint32_t tMesure = 0, tDht = 0, tOled = 0, tReconnect = 0, tServeurOk = 0;
 uint32_t pirDebut = 0;  // début de l'impulsion PIR en cours (mesure de la temporisation)
 bool pirAvant = false;
+bool mflnTeste = false;  // négociation de la taille des trames TLS faite une fois
 
 // ---------- Utilitaires ----------
 
@@ -134,7 +150,7 @@ void afficher() {
   oled.setCursor(0, 0);
   oled.println(F("SENTINEL-X"));
   oled.printf("WiFi %s\n", WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString().c_str() : "...");
-  oled.printf("MQTT %s\n", mqtt.connected() ? "OK" : "hors ligne");
+  oled.printf("MQTTS %s\n", mqtt.connected() ? "OK (TLS)" : "hors ligne");
   oled.println();
   if (cfg.dht22 && !isnan(last.temp)) oled.printf("T %.1fC  H %.0f%%\n", last.temp, last.hum);
   else oled.println(cfg.dht22 ? F("DHT22 --") : F("DHT22 coupe"));
@@ -192,15 +208,26 @@ void maintenirConnexion() {
   // Testament : si la carte disparaît, le broker annonce "online": false à sa place
   char will[64];
   snprintf(will, sizeof will, "{\"device\":\"%s\",\"online\":false}", DEVICE_ID);
-  Serial.printf("[MQTT] connexion à %s:%d… ", MQTT_HOST, MQTT_PORT);
-  if (mqtt.connect(DEVICE_ID, T_ETAT, 1, true, will)) {
+  // Trames TLS réduites à 1 Ko si le broker l'accepte : ~25 Ko de RAM économisés
+  if (!mflnTeste) {
+    mflnTeste = true;
+    if (net.probeMaxFragmentLength(MQTT_HOST, MQTT_PORT, 1024)) {
+      net.setBufferSizes(1024, 1024);
+      Serial.println(F("[TLS] fragments de 1 Ko acceptés par le broker"));
+    }
+  }
+  Serial.printf("[MQTT] connexion TLS à %s:%d… ", MQTT_HOST, MQTT_PORT);
+  if (mqtt.connect(DEVICE_ID, MQTT_USER, MQTT_PASS, T_ETAT, 1, true, will)) {
     Serial.println(F("OK"));
     mqtt.subscribe(T_COMMANDES, 1);
     mqtt.subscribe(T_CONFIG, 1);
     publierEtat();
     publierDiagnostic();
   } else {
-    Serial.printf("échec (code %d)\n", mqtt.state());
+    // -2 = échec réseau/TLS (certificat refusé ?), 4/5 = identifiants refusés
+    char err[80];
+    int code = net.getLastSSLError(err, sizeof err);
+    Serial.printf("échec (code %d)%s%s\n", mqtt.state(), code ? " TLS : " : "", code ? err : "");
   }
 }
 
@@ -278,6 +305,12 @@ void setup() {
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   Serial.printf("[WiFi] connexion à « %s »…\n", WIFI_SSID);
+
+  // TLS : seul un broker signé par notre AC est accepté. Sans RTC ni Internet sur le réseau
+  // de table, l'horloge de validation des certificats est fixée à la date de compilation.
+  net.setTrustAnchors(&caCert);
+  net.setX509Time(BUILD_EPOCH);
+  Serial.printf("[TLS] AC chargée, horloge des certificats : %lu\n", (unsigned long)BUILD_EPOCH);
 
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   mqtt.setCallback(onMessage);

@@ -53,4 +53,4 @@ def process_stream(camera_index=0, target_width=640, target_height=480, max_late
         cv2.destroyAllWindows()
 
 if __name__ == "__main__":
-    process_stream()
+    process_stream(camera_index = 1)

@@ -1,0 +1,15 @@
+# Contexte de build racine (ia/anomalies/Dockerfile) : n'envoyer que le nécessaire
+.git
+**/.venv
+**/__pycache__
+**/data
+**/*.joblib
+**/*.csv
+**/.env
+dashboard
+docs
+firmware
+security
+# Secrets Cyber (security/init-mqtt.sh)
+infra/mosquitto
+infra/pki

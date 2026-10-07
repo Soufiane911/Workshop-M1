@@ -6,7 +6,7 @@ et envoie une alerte à l'API quand une présence dure plus de N secondes.
 Usage :
     python detect.py                          # webcam 0, sans API
     python detect.py --camera 1               # autre webcam (ex. webcam USB)
-    python detect.py --api http://localhost:3000/api/v1/alerts
+    python detect.py --api http://localhost:8000/api/v1/alerts   # alertes + vidéo vers le dashboard
     python detect.py --zone                   # alerte seulement dans la zone interdite
 
 Touches : q = quitter, s = capture manuelle.
@@ -17,6 +17,7 @@ import json
 import threading
 import time
 import urllib.request
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -41,7 +42,96 @@ def parse_args():
     p.add_argument("--api", default=None, help="URL de POST /api/v1/alerts (désactivé si absent)")
     p.add_argument("--zone", action="store_true", help="ne compter que les personnes dans la zone interdite")
     p.add_argument("--no-window", action="store_true", help="ne pas afficher la fenêtre vidéo")
+    p.add_argument("--no-stream", action="store_true", help="ne pas envoyer la vidéo au dashboard")
+    p.add_argument("--stream-fps", type=float, default=5.0, help="images par seconde envoyées (défaut : 5)")
     return p.parse_args()
+
+
+class FrameSender:
+    """Envoie la dernière image annotée à l'API, sans jamais bloquer la détection.
+
+    Si l'envoi précédent n'est pas fini, l'image est simplement remplacée par la plus récente.
+    """
+
+    def __init__(self, url, fps):
+        self.url = url
+        self.period = 1 / fps
+        self.latest = None
+        self.event = threading.Event()
+        self.last_error = 0.0
+        self.last_submit = 0.0
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def submit(self, frame):
+        # Encodage JPEG seulement au rythme du flux : rien de superflu dans la boucle de détection
+        now = time.monotonic()
+        if now - self.last_submit < self.period:
+            return
+        self.last_submit = now
+        ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+        if ok:
+            self.latest = buf.tobytes()
+            self.event.set()
+
+    def _run(self):
+        while True:
+            self.event.wait()
+            self.event.clear()
+            jpeg, self.latest = self.latest, None
+            if jpeg is None:
+                continue
+            start = time.monotonic()
+            try:
+                req = urllib.request.Request(self.url, data=jpeg, method="POST",
+                                             headers={"Content-Type": "image/jpeg"})
+                urllib.request.urlopen(req, timeout=2).close()
+            except Exception as e:
+                if time.monotonic() - self.last_error > 10:  # évite d'inonder la console
+                    print(f"[API] échec de l'envoi vidéo : {e}")
+                    self.last_error = time.monotonic()
+            time.sleep(max(0.0, self.period - (time.monotonic() - start)))
+
+
+class StatsSender:
+    """Envoie environ une fois par seconde les stats de performance (moyennes glissantes) à l'API.
+
+    Non bloquant : l'envoi part dans un thread, les erreurs sont affichées au plus toutes les 10 s.
+    """
+
+    def __init__(self, url, model, conf):
+        self.url = url
+        self.model = model
+        self.conf = conf
+        self.infer = deque(maxlen=30)
+        self.fps = deque(maxlen=30)
+        self.last_sent = 0.0
+        self.last_error = 0.0
+
+    def update(self, infer_ms, fps, persons):
+        self.infer.append(infer_ms)
+        self.fps.append(fps)
+        now = time.monotonic()
+        if now - self.last_sent < 1.0:
+            return
+        self.last_sent = now
+        payload = {
+            "inference_ms": round(sum(self.infer) / len(self.infer), 1),
+            "fps": round(sum(self.fps) / len(self.fps), 1),
+            "persons": persons,
+            "model": self.model,
+            "conf": self.conf,
+        }
+        threading.Thread(target=self._post, args=(payload,), daemon=True).start()
+
+    def _post(self, payload):
+        try:
+            req = urllib.request.Request(self.url, data=json.dumps(payload).encode(),
+                                         headers={"Content-Type": "application/json"}, method="POST")
+            urllib.request.urlopen(req, timeout=2).close()
+        except Exception as e:
+            if time.monotonic() - self.last_error > 10:  # évite d'inonder la console
+                print(f"[API] échec de l'envoi des stats : {e}")
+                self.last_error = time.monotonic()
 
 
 def in_zone(box, zone):
@@ -107,6 +197,15 @@ def main():
     if not cap.isOpened():
         raise SystemExit(f"Impossible d'ouvrir la webcam {args.camera}. Essayez --camera 1.")
 
+    sender = None
+    stats = None
+    if args.api and not args.no_stream:
+        frame_url = args.api.rsplit("/alerts", 1)[0] + "/vision/frame"
+        sender = FrameSender(frame_url, args.stream_fps)
+        print(f"Vidéo envoyée au dashboard : {frame_url}")
+        stats_url = args.api.rsplit("/alerts", 1)[0] + "/vision/stats"
+        stats = StatsSender(stats_url, args.model, args.conf)
+
     presence_since = None   # début de la présence en cours
     last_alert = 0.0
     prev_time = time.perf_counter()
@@ -139,6 +238,17 @@ def main():
             presence_since = None
         alarm = presence_since is not None and now - presence_since >= args.delay
 
+        cur = time.perf_counter()
+        fps = 1 / max(cur - prev_time, 1e-6)
+        prev_time = cur
+
+        # Annoter avant l'alerte : l'API prend l'image courante comme capture de l'intrus
+        if sender or not args.no_window:
+            draw(frame, persons, args.zone, alarm, infer_ms, fps)
+        if sender:
+            sender.submit(frame)
+            stats.update(infer_ms, fps, len(persons))
+
         if alarm and now - last_alert >= args.cooldown:
             last_alert = now
             snap = save_snapshot(frame)
@@ -156,12 +266,7 @@ def main():
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 })
 
-        cur = time.perf_counter()
-        fps = 1 / max(cur - prev_time, 1e-6)
-        prev_time = cur
-
         if not args.no_window:
-            draw(frame, persons, args.zone, alarm, infer_ms, fps)
             cv2.imshow("Sentinel-X - Vision", frame)
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):

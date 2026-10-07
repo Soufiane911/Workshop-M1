@@ -11,5 +11,3 @@ Boîtier de surveillance autonome (ESP8266) relié à un PC serveur local (optio
 | `infra/` | 5 — Infra | docker-compose, config Mosquitto, réseau, monitoring |
 | `security/` | 5 — Cyber | TLS, hardening, rapport de pentest |
 | `docs/` | 6 — Com | Dossier PDF, schémas, présentation, vidéo |
-
-> Aucun secret (mot de passe, clé, certificat) ne doit être commité. Utiliser un fichier `.env` (ignoré par Git).

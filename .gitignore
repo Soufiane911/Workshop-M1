@@ -14,3 +14,15 @@ Sujet/
 *.pt
 ia/vision/snapshots/
 .venv/
+*.csv
+ia/anomalies/*.joblib
+ia/anomalies/data/
+firmware/include/secrets.h
+# Cyber : secrets générés par security/init-mqtt.sh
+infra/pki/
+infra/mosquitto/certs/
+infra/mosquitto/config/passwd
+firmware/include/ca_cert.h
+*.srl
+passwd
+san.cnf
